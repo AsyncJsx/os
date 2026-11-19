@@ -1,8 +1,8 @@
-# Operating Systems Laboratory: Practical Codes
+# BTCOL406: Operating Systems Laboratory
 
 <div style="page-break-after: always;"></div>
 
-## Practical No. 1: Hands-On UNIX Commands
+## Practical 1: Hands on Unix Commands
 
 ```bash
 pwd
@@ -21,7 +21,7 @@ rm -r myfolder
 
 <div style="page-break-after: always;"></div>
 
-## Practical No. 2: Shell Programming for File Handling
+## Practical 2: Shell Programming for File Handling
 
 ```bash
 #!/bin/bash
@@ -39,7 +39,7 @@ rm newtest.txt
 
 <div style="page-break-after: always;"></div>
 
-## Practical No. 3: Shell Script using grep, awk and sed
+## Practical 3: Shell Script using grep, awk and sed
 
 ```bash
 #!/bin/bash
@@ -52,7 +52,7 @@ sed 's/apple/mango/g' data.txt
 
 <div style="page-break-after: always;"></div>
 
-## Practical No. 4: CPU Scheduling Algorithms (FCFS, SJF, Priority)
+## Practical 4: CPU Scheduling Algorithms (FCFS, SJF, Priority)
 
 ```c
 #include <stdio.h>
@@ -90,7 +90,7 @@ int main(){
 
 <div style="page-break-after: always;"></div>
 
-## Practical No. 5: Page Replacement Algorithms (FIFO, Optimal, LRU)
+## Practical 5: Page Replacement Algorithms (FIFO, Optimal, LRU)
 
 ```c
 #include <stdio.h>
@@ -151,23 +151,183 @@ int main(){
 }
 ```
 
-Expected: FIFO 10, Optimal 7, LRU 9.
-
 <div style="page-break-after: always;"></div>
 
-## Practical No. 6: Quick Sort, Merge Sort and Travelling Salesman Problem
+## Practical 6: Concurrent Programming (Threads, Processes, fork and vfork)
 
 ```c
 #include <stdio.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <pthread.h>
+
+void *tf(void *a){
+    printf("Thread running\n");
+    return NULL;
+}
+
+int main(){
+    pid_t p=fork();
+    if(p==0){
+        printf("fork child: pid=%d parent=%d\n",getpid(),getppid());
+        _exit(0);
+    }
+    wait(NULL);
+    printf("Parent resumed after fork child\n");
+
+    pid_t v=vfork();
+    if(v==0){
+        printf("vfork child: pid=%d\n",getpid());
+        _exit(0);
+    }
+    printf("Parent resumed after vfork child\n");
+
+    pthread_t t;
+    pthread_create(&t,NULL,tf,NULL);
+    pthread_join(t,NULL);
+    return 0;
+}
+```
+
+<div style="page-break-after: always;"></div>
+
+## Practical 7: Pthreads and Performance
+
+```c
+#include <stdio.h>
+#include <pthread.h>
+#include <time.h>
+#define N 100000000L
+#define T 4
+long long part[T];
+
+double now(){
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC,&t);
+    return t.tv_sec+t.tv_nsec/1e9;
+}
+
+void *sum(void *a){
+    long id=(long)a;
+    long long s=0;
+    for(long i=id*(N/T);i<(id+1)*(N/T);i++) s+=i;
+    part[id]=s;
+    return NULL;
+}
+
+int main(){
+    double s=now();
+    long long a=0;
+    for(long i=0;i<N;i++) a+=i;
+    double e1=now()-s;
+
+    pthread_t th[T];
+    s=now();
+    for(long i=0;i<T;i++) pthread_create(&th[i],NULL,sum,(void*)i);
+    long long b=0;
+    for(int i=0;i<T;i++){pthread_join(th[i],NULL); b+=part[i];}
+    double e2=now()-s;
+
+    printf("Single thread: %lld in %.3f s\n",a,e1);
+    printf("%d threads: %lld in %.3f s\n",T,b,e2);
+    return 0;
+}
+```
+
+<div style="page-break-after: always;"></div>
+
+## Practical 8: Threads vs Processes (Matrix Multiplication)
+
+```c
+#include <stdio.h>
+#include <pthread.h>
+#include <unistd.h>
+#include <sys/mman.h>
+#include <sys/wait.h>
+#include <time.h>
+#define N 300
+#define P 4
+int A[N][N], B[N][N], CT[N][N];
+int (*CP)[N];
+
+double now(){
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC,&t);
+    return t.tv_sec+t.tv_nsec/1e9;
+}
+
+void rows(int id,int (*C)[N]){
+    for(int i=id*N/P;i<(id+1)*N/P;i++)
+        for(int j=0;j<N;j++){
+            int s=0;
+            for(int k=0;k<N;k++) s+=A[i][k]*B[k][j];
+            C[i][j]=s;
+        }
+}
+
+void *work(void *a){
+    rows((int)(long)a,CT);
+    return NULL;
+}
+
+int main(){
+    for(int i=0;i<N;i++)
+        for(int j=0;j<N;j++){A[i][j]=(i+j)%10; B[i][j]=(i*j)%10;}
+
+    pthread_t th[P];
+    double s=now();
+    for(long i=0;i<P;i++) pthread_create(&th[i],NULL,work,(void*)i);
+    for(int i=0;i<P;i++) pthread_join(th[i],NULL);
+    double et=now()-s;
+
+    CP=mmap(NULL,sizeof(int)*N*N,PROT_READ|PROT_WRITE,MAP_SHARED|MAP_ANONYMOUS,-1,0);
+    s=now();
+    for(int i=0;i<P;i++)
+        if(fork()==0){rows(i,CP); _exit(0);}
+    for(int i=0;i<P;i++) wait(NULL);
+    double ep=now()-s;
+
+    printf("Threads:   %.3f s\n",et);
+    printf("Processes: %.3f s\n",ep);
+    printf("Results match: %s\n",CT[N-1][N-1]==CP[N-1][N-1]?"yes":"no");
+    return 0;
+}
+```
+
+<div style="page-break-after: always;"></div>
+
+## Practical 9: Hyper Quick Sort, Merge Sort, Travelling Salesman Problem
+
+```c
+#include <stdio.h>
+#include <pthread.h>
 #define N 4
 
-void qs(int *a,int l,int r){
-    if(l>=r) return;
+typedef struct{int *a,l,r,d;} Arg;
+
+int part(int *a,int l,int r){
     int p=a[r], i=l-1, t;
     for(int j=l;j<r;j++)
         if(a[j]<p){i++; t=a[i]; a[i]=a[j]; a[j]=t;}
     t=a[i+1]; a[i+1]=a[r]; a[r]=t;
-    qs(a,l,i); qs(a,i+2,r);
+    return i+1;
+}
+
+void *pqs(void *x){
+    Arg *g=x;
+    if(g->l>=g->r) return NULL;
+    int p=part(g->a,g->l,g->r);
+    Arg L={g->a,g->l,p-1,g->d-1}, R={g->a,p+1,g->r,g->d-1};
+    if(g->d>0){
+        pthread_t t;
+        pthread_create(&t,NULL,pqs,&L);
+        pqs(&R);
+        pthread_join(t,NULL);
+    } else {
+        pqs(&L);
+        pqs(&R);
+    }
+    return NULL;
 }
 
 void ms(int *a,int l,int r){
@@ -199,8 +359,9 @@ void show(int *a,int n){
 
 int main(){
     int a[]={38,27,43,3,9,82,10}, b[]={38,27,43,3,9,82,10}, n=7;
-    qs(a,0,n-1);
-    printf("Quick Sort: "); show(a,n);
+    Arg g={a,0,n-1,2};
+    pqs(&g);
+    printf("Parallel Quick Sort: "); show(a,n);
     ms(b,0,n-1);
     printf("Merge Sort: "); show(b,n);
     tsp(0,1,1,0);
@@ -209,13 +370,68 @@ int main(){
 }
 ```
 
-Expected: TSP minimum cost 80.
+<div style="page-break-after: always;"></div>
+
+## Practical 10: Synchronization Primitives (Semaphore, Locks, Condition Variables)
+
+```c
+#include <stdio.h>
+#include <pthread.h>
+#include <semaphore.h>
+int cnt=0, ready=0;
+pthread_mutex_t m=PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t c=PTHREAD_COND_INITIALIZER;
+sem_t s;
+
+void *inc(void *a){
+    for(int i=0;i<100000;i++){
+        pthread_mutex_lock(&m);
+        cnt++;
+        pthread_mutex_unlock(&m);
+    }
+    return NULL;
+}
+
+void *waiter(void *a){
+    pthread_mutex_lock(&m);
+    while(!ready) pthread_cond_wait(&c,&m);
+    printf("Condition variable: condition met\n");
+    pthread_mutex_unlock(&m);
+    sem_post(&s);
+    return NULL;
+}
+
+void *signaler(void *a){
+    pthread_mutex_lock(&m);
+    ready=1;
+    pthread_cond_signal(&c);
+    pthread_mutex_unlock(&m);
+    return NULL;
+}
+
+int main(){
+    pthread_t t1,t2,w,g;
+    sem_init(&s,0,0);
+
+    pthread_create(&t1,NULL,inc,NULL);
+    pthread_create(&t2,NULL,inc,NULL);
+    pthread_join(t1,NULL);
+    pthread_join(t2,NULL);
+    printf("Mutex: counter = %d\n",cnt);
+
+    pthread_create(&w,NULL,waiter,NULL);
+    pthread_create(&g,NULL,signaler,NULL);
+    sem_wait(&s);
+    printf("Semaphore: signal received\n");
+    pthread_join(w,NULL);
+    pthread_join(g,NULL);
+    return 0;
+}
+```
 
 <div style="page-break-after: always;"></div>
 
-## Practical No. 7a: Producer-Consumer Problem
-
-Compile with `-pthread`.
+## Practical 11a: Producer-Consumer Problem
 
 ```c
 #include <stdio.h>
@@ -265,7 +481,7 @@ int main(){
 
 <div style="page-break-after: always;"></div>
 
-## Practical No. 7b: Banker's Algorithm
+## Practical 11b: Banker's Algorithm
 
 ```c
 #include <stdio.h>
@@ -298,11 +514,9 @@ int main(){
 }
 ```
 
-Expected: Safe sequence P1 P3 P4 P0 P2.
-
 <div style="page-break-after: always;"></div>
 
-## Practical No. 8: Memory Allocation Algorithms (First Fit, Best Fit, Worst Fit)
+## Practical 12: Memory Allocation Algorithms (First Fit, Best Fit, Worst Fit)
 
 ```c
 #include <stdio.h>
@@ -337,7 +551,7 @@ int main(){
 
 <div style="page-break-after: always;"></div>
 
-## Practical No. 9: Disk Scheduling Algorithms (FCFS, SSTF, SCAN, C-SCAN)
+## Practical 13: Disk Scheduling Algorithms (FCFS, SCAN, SSTF, C-SCAN)
 
 ```c
 #include <stdio.h>
@@ -376,4 +590,99 @@ int main(){
 }
 ```
 
-Expected: FCFS 640, SSTF 236, SCAN 331, C-SCAN 382.<img width="1917" height="770" alt="image" src="https://github.com/user-attachments/assets/88b41ac2-d087-44e9-bc36-91088b2437bc" />
+<div style="page-break-after: always;"></div>
+
+## Practical 14: Kernel Reconfiguration, Device Drivers, System Administration, Utilities and Performance Tuning
+
+System information and administration:
+
+```bash
+uname -a
+cat /proc/version
+lsmod
+cat /proc/cpuinfo | head -n 20
+free -m
+df -h
+ps aux | head
+top -bn1 | head -n 15
+vmstat 1 3
+sudo useradd testuser
+sudo passwd testuser
+sudo userdel testuser
+```
+
+Utility script:
+
+```bash
+#!/bin/bash
+echo "Host: $(hostname)"
+echo "Kernel: $(uname -r)"
+echo "Uptime: $(uptime -p)"
+echo "Memory:"; free -m
+echo "Disk:"; df -h /
+echo "Top 5 processes by CPU:"
+ps -eo pid,comm,%cpu --sort=-%cpu | head -n 6
+```
+
+Performance tuning:
+
+```bash
+sysctl vm.swappiness
+sudo sysctl -w vm.swappiness=10
+nice -n 10 sleep 30 &
+renice -n 5 -p $!
+```
+
+Kernel reconfiguration:
+
+```bash
+sudo apt install build-essential libncurses-dev flex bison libssl-dev libelf-dev
+cd /usr/src/linux
+sudo make menuconfig
+sudo make -j$(nproc)
+sudo make modules_install
+sudo make install
+sudo update-grub
+```
+
+Device driver (`hello.c`):
+
+```c
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
+
+static int __init hello_init(void){
+    printk(KERN_INFO "Hello driver loaded\n");
+    return 0;
+}
+
+static void __exit hello_exit(void){
+    printk(KERN_INFO "Hello driver unloaded\n");
+}
+
+module_init(hello_init);
+module_exit(hello_exit);
+MODULE_LICENSE("GPL");
+```
+
+`Makefile`:
+
+```make
+obj-m += hello.o
+all:
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
+clean:
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
+```
+
+Load and test:
+
+```bash
+make
+sudo insmod hello.ko
+dmesg | tail
+lsmod | grep hello
+sudo rmmod hello
+dmesg | tail
+```
