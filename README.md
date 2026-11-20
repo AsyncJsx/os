@@ -592,73 +592,133 @@ int main(){
 
 <div style="page-break-after: always;"></div>
 
-## Practical 14: Kernel Reconfiguration, Device Drivers, System Administration, Utilities and Performance Tuning
+## Practical 14: Kernel Reconfiguration, Device Drivers, System Administration, Utilities and OS Performance Tuning
 
-System information and administration:
+Writing a utility (Bash script):
+
+```bash
+#!/bin/bash
+
+echo "================================"
+echo "       SYSTEM INFORMATION"
+echo "================================"
+
+echo "1. Operating System:"
+uname -o
+
+echo ""
+echo "2. Kernel Version:"
+uname -r
+
+echo ""
+echo "3. CPU Information:"
+lscpu | grep "Model name"
+
+echo ""
+echo "4. Memory Usage:"
+free -h
+
+echo ""
+echo "5. Disk Usage:"
+df -h
+
+echo ""
+echo "6. System Uptime:"
+uptime
+
+echo ""
+echo "7. Logged-in User:"
+whoami
+
+echo ""
+echo "8. Running Processes:"
+ps aux | head -5
+
+echo ""
+echo "9. Performance (vmstat):"
+vmstat 1 3
+
+echo ""
+echo "10. Swappiness:"
+sysctl vm.swappiness
+
+echo "================================"
+echo "       END OF REPORT"
+echo "================================"
+```
+
+System administration and OS performance tuning (Linux terminal):
 
 ```bash
 uname -a
-cat /proc/version
-lsmod
-cat /proc/cpuinfo | head -n 20
+lsmod | head
 free -m
 df -h
 ps aux | head
 top -bn1 | head -n 15
 vmstat 1 3
 sudo useradd testuser
-sudo passwd testuser
 sudo userdel testuser
-```
-
-Utility script:
-
-```bash
-#!/bin/bash
-echo "Host: $(hostname)"
-echo "Kernel: $(uname -r)"
-echo "Uptime: $(uptime -p)"
-echo "Memory:"; free -m
-echo "Disk:"; df -h /
-echo "Top 5 processes by CPU:"
-ps -eo pid,comm,%cpu --sort=-%cpu | head -n 6
-```
-
-Performance tuning:
-
-```bash
 sysctl vm.swappiness
 sudo sysctl -w vm.swappiness=10
-nice -n 10 sleep 30 &
-renice -n 5 -p $!
+sleep 60 &
+renice -n 10 -p $!
+ps -o pid,ni,comm -p $!
+kill $!
 ```
 
-Kernel reconfiguration:
+Kernel reconfiguration (Ubuntu/Debian):
 
 ```bash
-sudo apt install build-essential libncurses-dev flex bison libssl-dev libelf-dev
-cd /usr/src/linux
-sudo make menuconfig
-sudo make -j$(nproc)
+sudo apt update
+sudo apt install build-essential libncurses-dev flex bison libssl-dev libelf-dev bc wget
+wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.tar.xz
+tar -xf linux-6.6.tar.xz
+cd linux-6.6
+cp /boot/config-$(uname -r) .config
+scripts/config --disable SYSTEM_TRUSTED_KEYS --disable SYSTEM_REVOCATION_KEYS
+make menuconfig
+make -j$(nproc)
 sudo make modules_install
 sudo make install
-sudo update-grub
+sudo reboot
 ```
 
-Device driver (`hello.c`):
+Device driver: character device (`hello.c`):
 
 ```c
 #include <linux/module.h>
-#include <linux/kernel.h>
-#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/string.h>
+#include <linux/uaccess.h>
+
+static int major;
+static const char msg[]="Hello from driver\n";
+
+static ssize_t dev_read(struct file *f,char __user *buf,size_t len,loff_t *off){
+    size_t n=strlen(msg);
+    if(*off>=n) return 0;
+    if(len>n-*off) len=n-*off;
+    if(copy_to_user(buf,msg+*off,len)) return -EFAULT;
+    *off+=len;
+    return len;
+}
+
+static struct file_operations fops={
+    .owner=THIS_MODULE,
+    .read=dev_read,
+};
 
 static int __init hello_init(void){
-    printk(KERN_INFO "Hello driver loaded\n");
+    major=register_chrdev(0,"hello",&fops);
+    if(major<0) return major;
+    printk(KERN_INFO "hello: major number %d\n",major);
     return 0;
 }
 
 static void __exit hello_exit(void){
-    printk(KERN_INFO "Hello driver unloaded\n");
+    unregister_chrdev(major,"hello");
+    printk(KERN_INFO "hello: unloaded\n");
 }
 
 module_init(hello_init);
@@ -666,7 +726,7 @@ module_exit(hello_exit);
 MODULE_LICENSE("GPL");
 ```
 
-`Makefile`:
+`Makefile` (indent the make lines with a TAB):
 
 ```make
 obj-m += hello.o
@@ -676,13 +736,15 @@ clean:
 	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
 ```
 
-Load and test:
+Build, load and test (replace `MAJOR` with the number shown by `dmesg`):
 
 ```bash
+sudo apt install build-essential linux-headers-$(uname -r)
 make
 sudo insmod hello.ko
-dmesg | tail
-lsmod | grep hello
+sudo dmesg | tail -n 3
+sudo mknod /dev/hello c MAJOR 0
+sudo cat /dev/hello
 sudo rmmod hello
-dmesg | tail
+sudo rm /dev/hello
 ```
